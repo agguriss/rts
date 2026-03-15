@@ -37,10 +37,8 @@ void* calc(void* args) {
 int main(int argc, char** argv) {
 	pid_t pid = getpid();
     printf("[*] running process %d\n", pid);
-	sleep(1);
     int policy = sched_getscheduler(pid);
 	printf("[*] using default scheduler %d %s\n", policy , policyToString(policy));
-	sleep(1);
 
 	srand(time(NULL));
 
@@ -50,7 +48,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 	printf("[*] using %d threads\n",THREADS);
-	sleep(1);
 
     pthread_t threads[THREADS];
     Params par[THREADS];
@@ -60,24 +57,57 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+	struct sched_param param_fifo;
+	pthread_attr_t attr_fifo;
+	pthread_t thread_fifo;
+	int status = -1;
+
+	memset(&param_fifo,0,sizeof(param_fifo));
+	status = pthread_attr_init(&attr_fifo);
+
+	if(status){
+		perror("pthread_attr_init error\n");
+		return status;
+	}
+
+	status = pthread_attr_setschedpolicy(&attr_fifo,SCHED_FIFO);
+	if(status){
+		perror("pthread_attr_setschedpolicy error\n");
+		return status;
+	}
+
+	param_fifo.sched_priority = sched_get_priority_max(SCHED_FIFO);
+	status = pthread_attr_setschedparam(&attr_fifo,&param_fifo);
+	if(status){
+		perror("pthread_attr_setschedparam error\n");
+		return status;
+	}
+
+	status = pthread_attr_setinheritsched(&attr_fifo,PTHREAD_EXPLICIT_SCHED);
+	if(status){
+		perror("pthread_attr_setinheritsched error\n");
+		return status;
+	}
+
+
     for (int i = 0; i < THREADS; i++) {
         par[i].thread = i;
         par[i].num = 1 + rand() % 9;
 
-        int rc = pthread_create(&threads[i], NULL, calc, (void*)&par[i]);
-        if (rc != 0) {
-            printf("pthread_create error: %s\n", strerror(rc));
-            pthread_mutex_destroy(&calc_m);
-            return 1;
+        status = pthread_create(&threads[i], &attr_fifo, calc, (void*)&par[i]);
+        if (status) {
+            perror("pthread_create error\n");
+			pthread_mutex_destroy(&calc_m);
+            return status;
         }
     }
 
     for (int i = 0; i < THREADS; i++) {
-        int rc = pthread_join(threads[i], NULL);
-        if (rc != 0) {
-            printf("pthread_join error: %s\n", strerror(rc));
+        status = pthread_join(threads[i], NULL);
+        if (status) {
+			perror("pthread_join error\n");
             pthread_mutex_destroy(&calc_m);
-            return 1;
+            return status;
         }
     }
 
