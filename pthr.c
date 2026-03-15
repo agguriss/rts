@@ -10,7 +10,6 @@ int sum = 0;
 
 typedef struct {
     int thread;
-    int num;
 } Params;
 
 char* policyToString(int policy){
@@ -24,23 +23,39 @@ char* policyToString(int policy){
 
 void* calc(void* args) {
     Params* par = (Params*)args;
+    unsigned int seed = time(NULL) ^ (par->thread * 12345u);
 
-    printf("thread %d number %d\n", par->thread, par->num);
+    while (1) {
+        int num = -15 + rand_r(&seed) % 25;
 
-    pthread_mutex_lock(&calc_m);
-    sum += par->num;
-    pthread_mutex_unlock(&calc_m);
+        pthread_mutex_lock(&calc_m);
+
+        if (sum < 0) {
+            pthread_mutex_unlock(&calc_m);
+    	    printf("thread %d hit a negative (%d)\n", par->thread, sum);
+            exit(EXIT_FAILURE);
+        }
+
+        sum += num;
+        printf("thread %d number %d, sum = %d\n", par->thread, num, sum);
+
+        if (sum < 0) {
+            printf("thread %d hit a negative (%d)\n", par->thread, sum);
+            exit(EXIT_FAILURE);
+	    }
+
+        pthread_mutex_unlock(&calc_m);
+
+        sleep(1 + rand_r(&seed) % 3);
+    }
 
     return NULL;
 }
-
 int main(int argc, char** argv) {
 	pid_t pid = getpid();
     printf("[*] running process %d\n", pid);
     int policy = sched_getscheduler(pid);
 	printf("[*] using default scheduler %d %s\n", policy , policyToString(policy));
-
-	srand(time(NULL));
 
     int THREADS = (argc > 1) ? atoi(argv[1]) : 4;
     if (THREADS <= 0) {
@@ -59,44 +74,42 @@ int main(int argc, char** argv) {
 
 	struct sched_param param_fifo;
 	pthread_attr_t attr_fifo;
-	pthread_t thread_fifo;
 	int status = -1;
 
 	memset(&param_fifo,0,sizeof(param_fifo));
 	status = pthread_attr_init(&attr_fifo);
 
 	if(status){
-		perror("pthread_attr_init error\n");
+		printf("pthread_attr_init error: %s\n", strerror(status));
 		return status;
 	}
-
-	status = pthread_attr_setschedpolicy(&attr_fifo,SCHED_FIFO);
+	policy = SCHED_RR;
+	status = pthread_attr_setschedpolicy(&attr_fifo,policy);
 	if(status){
-		perror("pthread_attr_setschedpolicy error\n");
+		printf("pthread_attr_setschedpolicy error: %s\n", strerror(status));
 		return status;
 	}
 
-	param_fifo.sched_priority = sched_get_priority_max(SCHED_FIFO);
+	param_fifo.sched_priority = sched_get_priority_max(policy);
 	status = pthread_attr_setschedparam(&attr_fifo,&param_fifo);
 	if(status){
-		perror("pthread_attr_setschedparam error\n");
+		printf("pthread_attr_setschedparam error: %s\n", strerror(status));
 		return status;
 	}
 
 	status = pthread_attr_setinheritsched(&attr_fifo,PTHREAD_EXPLICIT_SCHED);
 	if(status){
-		perror("pthread_attr_setinheritsched error\n");
+		printf("pthread_attr_setinheritsched error: %s\n", strerror(status));
 		return status;
 	}
-
+	printf("[*] running proccess with scheduler: %s\n",policyToString(policy));
 
     for (int i = 0; i < THREADS; i++) {
         par[i].thread = i;
-        par[i].num = 1 + rand() % 9;
 
         status = pthread_create(&threads[i], &attr_fifo, calc, (void*)&par[i]);
         if (status) {
-            perror("pthread_create error\n");
+			printf("pthread_create error: %s\n", strerror(status));
 			pthread_mutex_destroy(&calc_m);
             return status;
         }
@@ -105,7 +118,7 @@ int main(int argc, char** argv) {
     for (int i = 0; i < THREADS; i++) {
         status = pthread_join(threads[i], NULL);
         if (status) {
-			perror("pthread_join error\n");
+			printf("pthread_join error: %s\n", strerror(status));
             pthread_mutex_destroy(&calc_m);
             return status;
         }
