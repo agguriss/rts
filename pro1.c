@@ -1,8 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <sys/wait.h>
 
 int main(){
+	pid_t pid = getpid();
+    printf("process: %d\n",pid);
+
 	int status = system("gcc pro2.c -o pro2.out");
 	perror("compilation");
 	status = system("./pro2.out");
